@@ -258,7 +258,11 @@ export function ExecuteWorkoutPage() {
                     <input
                       type="number"
                       value={reps}
-                      onChange={(e) => setReps(e.target.value)}
+                      onChange={(e) => {
+                        let val = e.target.value;
+                        if (val.length > 1 && val.startsWith('0') && !val.startsWith('0.')) val = val.replace(/^0+/, '');
+                        setReps(val);
+                      }}
                       placeholder={`${currentPlannedSet?.minReps}-${currentPlannedSet?.maxReps}`}
                       className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-3 text-white text-lg text-center focus:outline-none focus:border-amber-500"
                     />
@@ -272,7 +276,11 @@ export function ExecuteWorkoutPage() {
                       type="number"
                       step="0.5"
                       value={load}
-                      onChange={(e) => setLoad(e.target.value)}
+                      onChange={(e) => {
+                        let val = e.target.value;
+                        if (val.length > 1 && val.startsWith('0') && !val.startsWith('0.')) val = val.replace(/^0+/, '');
+                        setLoad(val);
+                      }}
                       placeholder={String(currentPlannedSet?.targetLoad || "")}
                       className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-3 text-white text-lg text-center focus:outline-none focus:border-amber-500"
                     />
@@ -285,7 +293,11 @@ export function ExecuteWorkoutPage() {
                     <input
                       type="number"
                       value={rir}
-                      onChange={(e) => setRir(e.target.value)}
+                      onChange={(e) => {
+                        let val = e.target.value;
+                        if (val.length > 1 && val.startsWith('0') && !val.startsWith('0.')) val = val.replace(/^0+/, '');
+                        setRir(val);
+                      }}
                       placeholder="0-4"
                       className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-3 text-white text-lg text-center focus:outline-none focus:border-amber-500"
                     />

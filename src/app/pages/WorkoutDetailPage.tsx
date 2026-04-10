@@ -19,11 +19,11 @@ export function WorkoutDetailPage() {
   const [editingExercicioId, setEditingExercicioId] = useState<number | null>(null);
   const [formConfig, setFormConfig] = useState({
     exercicioId: "",
-    series: 3,
-    minReps: 8,
-    maxReps: 12,
-    targetLoad: 10,
-    restTime: 60,
+    series: "3",
+    minReps: "8",
+    maxReps: "12",
+    targetLoad: "10",
+    restTime: "60",
   });
 
   const fetchWorkout = async () => {
@@ -49,6 +49,15 @@ export function WorkoutDetailPage() {
     fetchWorkout();
   }, [id]);
 
+  const handleNumChange = (field: string, val: string) => {
+    // Evitar leading zeros (ex: "020" -> "20") mas preserva "0" ou decimais "0.5"
+    let sanitized = val;
+    if (sanitized.length > 1 && sanitized.startsWith('0') && !sanitized.startsWith('0.')) {
+      sanitized = sanitized.replace(/^0+/, '');
+    }
+    setFormConfig(prev => ({ ...prev, [field]: sanitized }));
+  };
+
   const handleAddOrUpdateExercicio = async () => {
     if (!formConfig.exercicioId) {
       toast.error("Selecione um exercício");
@@ -56,11 +65,11 @@ export function WorkoutDetailPage() {
     }
     setAdding(true);
     try {
-      const seriesPlanejadas = Array.from({ length: formConfig.series }).map(() => ({
-        minReps: formConfig.minReps,
-        maxReps: formConfig.maxReps,
-        targetLoad: formConfig.targetLoad,
-        restTime: formConfig.restTime,
+      const seriesPlanejadas = Array.from({ length: Number(formConfig.series) || 1 }).map(() => ({
+        minReps: Number(formConfig.minReps) || 0,
+        maxReps: Number(formConfig.maxReps) || 0,
+        targetLoad: Number(formConfig.targetLoad) || 0,
+        restTime: Number(formConfig.restTime) || 0,
       }));
 
       if (editingExercicioId) {
@@ -72,7 +81,7 @@ export function WorkoutDetailPage() {
       }
       setShowAddForm(false);
       setEditingExercicioId(null);
-      setFormConfig({ ...formConfig, exercicioId: "" });
+      setFormConfig({ exercicioId: "", series: "3", minReps: "8", maxReps: "12", targetLoad: "10", restTime: "60" });
       fetchWorkout(); // reload
     } catch (err: any) {
       toast.error(err.message || "Erro ao salvar exercício");
@@ -95,7 +104,7 @@ export function WorkoutDetailPage() {
 
   const openAddForm = () => {
     setEditingExercicioId(null);
-    setFormConfig({ exercicioId: "", series: 3, minReps: 8, maxReps: 12, targetLoad: 10, restTime: 60 });
+    setFormConfig({ exercicioId: "", series: "3", minReps: "8", maxReps: "12", targetLoad: "10", restTime: "60" });
     setShowAddForm(true);
   };
 
@@ -105,11 +114,11 @@ export function WorkoutDetailPage() {
     const firstSet = (ex.seriesPlanejadas || [])[0] || {};
     setFormConfig({
       exercicioId: String(ex.exercicioId),
-      series: seriesLength > 0 ? seriesLength : 3,
-      minReps: firstSet.minReps || 8,
-      maxReps: firstSet.maxReps || 12,
-      targetLoad: firstSet.targetLoad || 10,
-      restTime: firstSet.restTime || 60,
+      series: String(seriesLength > 0 ? seriesLength : 3),
+      minReps: String(firstSet.minReps ?? 8),
+      maxReps: String(firstSet.maxReps ?? 12),
+      targetLoad: String(firstSet.targetLoad ?? 10),
+      restTime: String(firstSet.restTime ?? 60),
     });
     setShowAddForm(true);
     // Role para o formulário
@@ -250,7 +259,7 @@ export function WorkoutDetailPage() {
                   <input
                     type="number"
                     value={formConfig.series}
-                    onChange={(e) => setFormConfig({ ...formConfig, series: Number(e.target.value) })}
+                    onChange={(e) => handleNumChange('series', e.target.value)}
                     className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-amber-500"
                   />
                 </div>
@@ -259,7 +268,7 @@ export function WorkoutDetailPage() {
                   <input
                     type="number"
                     value={formConfig.restTime}
-                    onChange={(e) => setFormConfig({ ...formConfig, restTime: Number(e.target.value) })}
+                    onChange={(e) => handleNumChange('restTime', e.target.value)}
                     className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-amber-500"
                   />
                 </div>
@@ -271,7 +280,7 @@ export function WorkoutDetailPage() {
                   <input
                     type="number"
                     value={formConfig.minReps}
-                    onChange={(e) => setFormConfig({ ...formConfig, minReps: Number(e.target.value) })}
+                    onChange={(e) => handleNumChange('minReps', e.target.value)}
                     className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-amber-500"
                   />
                 </div>
@@ -280,7 +289,7 @@ export function WorkoutDetailPage() {
                   <input
                     type="number"
                     value={formConfig.maxReps}
-                    onChange={(e) => setFormConfig({ ...formConfig, maxReps: Number(e.target.value) })}
+                    onChange={(e) => handleNumChange('maxReps', e.target.value)}
                     className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-amber-500"
                   />
                 </div>
@@ -289,7 +298,7 @@ export function WorkoutDetailPage() {
                   <input
                     type="number"
                     value={formConfig.targetLoad}
-                    onChange={(e) => setFormConfig({ ...formConfig, targetLoad: Number(e.target.value) })}
+                    onChange={(e) => handleNumChange('targetLoad', e.target.value)}
                     className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-amber-500"
                   />
                 </div>
