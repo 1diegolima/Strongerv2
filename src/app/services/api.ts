@@ -1,6 +1,10 @@
 import axios from 'axios';
 
-const API_URL = import.meta.env.VITE_API_URL || (import.meta.env.MODE === 'production' ? '/api' : 'http://localhost:3001/api');
+// In production (Vercel): uses /api which is served by the serverless function.
+// In development: proxied via vite.config.ts proxy to localhost:3001.
+// VITE_API_URL can override for special environments, but should NOT be set
+// in local .env if you want this auto-detection to work.
+const API_URL = import.meta.env.VITE_API_URL ?? '/api';
 
 export const api = axios.create({
   baseURL: API_URL,
