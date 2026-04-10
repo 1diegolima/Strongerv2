@@ -17,6 +17,8 @@ export function WorkoutDetailPage() {
   const [showAddForm, setShowAddForm] = useState(false);
   const [adding, setAdding] = useState(false);
   const [editingExercicioId, setEditingExercicioId] = useState<number | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [formConfig, setFormConfig] = useState({
     exercicioId: "",
     series: "3",
@@ -105,6 +107,8 @@ export function WorkoutDetailPage() {
   const openAddForm = () => {
     setEditingExercicioId(null);
     setFormConfig({ exercicioId: "", series: "3", minReps: "8", maxReps: "12", targetLoad: "10", restTime: "60" });
+    setSearchQuery("");
+    setIsDropdownOpen(false);
     setShowAddForm(true);
   };
 
@@ -120,6 +124,8 @@ export function WorkoutDetailPage() {
       targetLoad: String(firstSet.targetLoad ?? 10),
       restTime: String(firstSet.restTime ?? 60),
     });
+    setSearchQuery(ex.exercicioNome || "");
+    setIsDropdownOpen(false);
     setShowAddForm(true);
     // Role para o formulário
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -232,25 +238,67 @@ export function WorkoutDetailPage() {
             </h3>
             
             <div className="space-y-3">
-              <div>
+              <div className="relative">
                 <label className="block text-xs text-zinc-400 mb-1">Buscar Exercício *</label>
                 <input
                   type="text"
-                  list="exercicios-list"
-                  placeholder="Digite para buscar..."
+                  placeholder="Ex: Supino, Agachamento..."
+                  value={searchQuery}
                   onChange={(e) => {
-                    const match = availableExercicios.find(ex => ex.nome === e.target.value);
-                    setFormConfig({ ...formConfig, exercicioId: match ? String(match.id) : "" });
+                    setSearchQuery(e.target.value);
+                    setIsDropdownOpen(true);
+                    if (formConfig.exercicioId) {
+                      setFormConfig(prev => ({ ...prev, exercicioId: "" })); // invalidate selection if typing
+                    }
                   }}
+                  onFocus={() => setIsDropdownOpen(true)}
                   className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-amber-500"
                 />
-                <datalist id="exercicios-list">
-                  {availableExercicios.map(ex => (
-                    <option key={ex.id} value={ex.nome}>
-                      {ex.grupo_muscular}
-                    </option>
-                  ))}
-                </datalist>
+                
+                {isDropdownOpen && (
+                  <div className="absolute z-50 w-full mt-1 bg-zinc-800 border border-zinc-700 rounded-lg shadow-2xl max-h-60 overflow-y-auto">
+                    {(() => {
+                        const filtered = availableExercicios.filter(ex => 
+                          ex.nome.toLowerCase().includes(searchQuery.toLowerCase()) || 
+                          ex.grupo_muscular.toLowerCase().includes(searchQuery.toLowerCase())
+                        );
+                        
+                        const grouped = filtered.reduce((acc, ex) => {
+                          if (!acc[ex.grupo_muscular]) acc[ex.grupo_muscular] = [];
+                          acc[ex.grupo_muscular].push(ex);
+                          return acc;
+                        }, {} as Record<string, ExercicioAPI[]>);
+
+                        if (Object.keys(grouped).length === 0) {
+                           return <div className="p-3 text-sm text-zinc-400 text-center">Nenhum exercício encontrado</div>;
+                        }
+
+                        return Object.entries(grouped).map(([grupo, exs]) => (
+                          <div key={grupo}>
+                            <div className="sticky top-0 bg-zinc-700/95 backdrop-blur-sm px-3 py-1.5 text-[10px] font-bold text-amber-500 uppercase tracking-wider z-10 border-y border-zinc-600/50">
+                              {grupo}
+                            </div>
+                            {exs.map(ex => (
+                              <button
+                                key={ex.id}
+                                type="button"
+                                onClick={() => {
+                                  setFormConfig(prev => ({ ...prev, exercicioId: String(ex.id) }));
+                                  setSearchQuery(ex.nome);
+                                  setIsDropdownOpen(false);
+                                }}
+                                className={`w-full text-left px-3 py-2.5 text-sm hover:bg-zinc-700 transition-colors border-b border-zinc-700/50 last:border-0 ${
+                                  formConfig.exercicioId === String(ex.id) ? 'bg-amber-500/20 text-amber-500 font-medium' : 'text-zinc-200'
+                                }`}
+                              >
+                                {ex.nome}
+                              </button>
+                            ))}
+                          </div>
+                        ));
+                    })()}
+                  </div>
+                )}
               </div>
 
               <div className="grid grid-cols-2 gap-3">
