@@ -7,11 +7,21 @@ import { HistoryPage } from "./pages/HistoryPage";
 import { ProfilePage } from "./pages/ProfilePage";
 import { AnalyticsPage } from "./pages/AnalyticsPage";
 import { NotFound } from "./pages/NotFound";
+import { OnboardingGuard } from "./components/OnboardingGuard";
+import { OnboardingPage } from "./pages/OnboardingPage";
 
 export const router = createBrowserRouter([
   {
+    path: "/onboarding",
+    Component: OnboardingPage,
+  },
+  {
     path: "/",
-    Component: RootLayout,
+    element: (
+      <OnboardingGuard>
+        <RootLayout />
+      </OnboardingGuard>
+    ),
     children: [
       { index: true, Component: WorkoutsPage },
       { path: "workout/:id", Component: WorkoutDetailPage },

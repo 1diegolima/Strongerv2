@@ -1,11 +1,21 @@
 import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router";
-import { storage, Workout, Exercise, ExecutedSet, WorkoutSession } from "../utils/storage";
-import { ArrowLeft, Check, X, Timer, ChevronRight } from "lucide-react";
+import { getTreinoById, TreinoAPI } from "../services/treinos.service";
+import { createSessao } from "../services/sessoes.service";
+import { ArrowLeft, Check, X, ChevronRight } from "lucide-react";
 import { RestTimer } from "../components/RestTimer";
+import { toast } from "sonner";
+import { PageLoading } from "../components/LoadingSpinner";
+
+interface ExecutedSet {
+  reps: number;
+  load: number;
+  rir: number;
+  isValid: boolean;
+}
 
 interface ExerciseExecution {
-  exerciseId: string;
+  exerciseId: number;
   exerciseName: string;
   plannedSets: number;
   completedSets: ExecutedSet[];
@@ -16,70 +26,69 @@ interface ExerciseExecution {
 export function ExecuteWorkoutPage() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const [workout, setWorkout] = useState<Workout | null>(null);
-  const [exercises, setExercises] = useState<Exercise[]>([]);
+  const [workout, setWorkout] = useState<TreinoAPI | null>(null);
   const [execution, setExecution] = useState<ExerciseExecution[]>([]);
   const [currentExerciseIndex, setCurrentExerciseIndex] = useState(0);
   const [showRestTimer, setShowRestTimer] = useState(false);
   const [restDuration, setRestDuration] = useState(60);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [startTime] = useState(Date.now());
 
-  // Form state for current set
   const [reps, setReps] = useState("");
   const [load, setLoad] = useState("");
   const [rir, setRir] = useState("");
 
   useEffect(() => {
-    storage.init();
     if (id) {
-      const w = storage.getWorkout(id);
-      setWorkout(w || null);
-      const exs = storage.getExercises();
-      setExercises(exs);
-
-      if (w) {
-        // Initialize execution state
-        const executionState = w.exercises
-          .sort((a, b) => a.order - b.order)
-          .map((we) => {
-            const exercise = exs.find((e) => e.id === we.exerciseId);
-            return {
-              exerciseId: we.exerciseId,
-              exerciseName: exercise?.name || "Exercício",
-              plannedSets: we.sets.length,
+      getTreinoById(id)
+        .then((w) => {
+          setWorkout(w);
+          const exercicios = w.exercicios || [];
+          const executionState = [...exercicios]
+            .sort((a, b) => a.ordem - b.ordem)
+            .map((we) => ({
+              exerciseId: we.exercicioId,
+              exerciseName: we.exercicioNome || "Exercício",
+              plannedSets: (we.seriesPlanejadas || []).length,
               completedSets: [],
               currentSetIndex: 0,
               isComplete: false,
-            };
-          });
-        setExecution(executionState);
+            }));
+          setExecution(executionState);
 
-        // Set initial load from plan
-        if (w.exercises.length > 0 && w.exercises[0].sets.length > 0) {
-          setLoad(w.exercises[0].sets[0].targetLoad.toString());
-        }
-      }
+          if (exercicios.length > 0 && exercicios[0].seriesPlanejadas?.[0]) {
+            setLoad(String(exercicios[0].seriesPlanejadas[0].targetLoad || ""));
+          }
+        })
+        .catch(() => toast.error("Treino não encontrado"))
+        .finally(() => setLoading(false));
     }
   }, [id]);
+
+  if (loading) return <PageLoading message="Carregando treino..." />;
 
   if (!workout || execution.length === 0) {
     return (
       <div className="min-h-screen bg-black flex items-center justify-center text-zinc-400">
-        Carregando...
+        Treino não encontrado
       </div>
     );
   }
 
   const currentExercise = execution[currentExerciseIndex];
-  const workoutExercise = workout.exercises.find(
-    (we) => we.exerciseId === currentExercise.exerciseId
+  const workoutExercises = workout.exercicios || [];
+  const currentWorkoutExercise = workoutExercises.find(
+    (we) => we.exercicioId === currentExercise.exerciseId
   );
-  const currentPlannedSet = workoutExercise?.sets[currentExercise.currentSetIndex];
+  const currentPlannedSet =
+    currentWorkoutExercise?.seriesPlanejadas?.[currentExercise.currentSetIndex];
 
   const isWorkoutComplete = execution.every((e) => e.isComplete);
 
   const handleCompleteSet = (isValid: boolean) => {
     if (!reps || !load) {
-      alert("Preencha as repetições e carga");
+      toast.error("Preencha as repetições e carga");
       return;
     }
 
@@ -105,7 +114,6 @@ export function ExecuteWorkoutPage() {
     setReps("");
     setRir("");
 
-    // Start rest timer if not last set
     if (!newExecution[currentExerciseIndex].isComplete && currentPlannedSet) {
       setRestDuration(currentPlannedSet.restTime);
       setShowRestTimer(true);
@@ -115,28 +123,34 @@ export function ExecuteWorkoutPage() {
   const handleNextExercise = () => {
     if (currentExerciseIndex < execution.length - 1) {
       setCurrentExerciseIndex(currentExerciseIndex + 1);
-      // Set load from next exercise plan
-      const nextWorkoutExercise = workout.exercises[currentExerciseIndex + 1];
-      if (nextWorkoutExercise?.sets[0]) {
-        setLoad(nextWorkoutExercise.sets[0].targetLoad.toString());
+      const nextExercise = workoutExercises[currentExerciseIndex + 1];
+      if (nextExercise?.seriesPlanejadas?.[0]) {
+        setLoad(String(nextExercise.seriesPlanejadas[0].targetLoad || ""));
       }
     }
   };
 
-  const handleFinishWorkout = () => {
-    const session: WorkoutSession = {
-      id: Date.now().toString(),
-      workoutId: workout.id,
-      date: new Date().toISOString().split("T")[0],
-      exercises: execution.map((e) => ({
-        exerciseId: e.exerciseId,
-        sets: e.completedSets,
-      })),
-      completed: true,
-    };
-
-    storage.addSession(session);
-    navigate("/");
+  const handleFinishWorkout = async () => {
+    setSaving(true);
+    try {
+      const duracaoMinutos = Math.round((Date.now() - startTime) / 60000);
+      await createSessao({
+        treino_id: workout.id,
+        data_sessao: new Date().toISOString().split("T")[0],
+        exercicios_executados: execution.map((e) => ({
+          exerciseId: e.exerciseId,
+          sets: e.completedSets,
+        })),
+        completo: true,
+        duracao_minutos: duracaoMinutos,
+      });
+      toast.success("Treino salvo com sucesso! 🎉");
+      navigate("/");
+    } catch (err: any) {
+      toast.error(err.message || "Erro ao salvar treino");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const totalSets = execution.reduce((acc, e) => acc + e.plannedSets, 0);
@@ -163,7 +177,7 @@ export function ExecuteWorkoutPage() {
               <ArrowLeft className="size-6" />
             </button>
             <div className="flex-1">
-              <h1 className="text-xl font-semibold text-white">{workout.name}</h1>
+              <h1 className="text-xl font-semibold text-white">{workout.nome}</h1>
               <p className="text-sm text-zinc-400">
                 {completedSetsCount} / {totalSets} séries
               </p>
@@ -259,7 +273,7 @@ export function ExecuteWorkoutPage() {
                       step="0.5"
                       value={load}
                       onChange={(e) => setLoad(e.target.value)}
-                      placeholder={currentPlannedSet?.targetLoad.toString()}
+                      placeholder={String(currentPlannedSet?.targetLoad || "")}
                       className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-3 text-white text-lg text-center focus:outline-none focus:border-amber-500"
                     />
                   </div>
@@ -336,15 +350,16 @@ export function ExecuteWorkoutPage() {
             )}
 
             {/* Next Exercise Button */}
-            {currentExercise.isComplete && currentExerciseIndex < execution.length - 1 && (
-              <button
-                onClick={handleNextExercise}
-                className="w-full bg-amber-500 hover:bg-amber-600 text-black px-6 py-3.5 rounded-lg transition-colors flex items-center justify-center gap-2 font-medium"
-              >
-                Próximo Exercício
-                <ChevronRight className="size-5" />
-              </button>
-            )}
+            {currentExercise.isComplete &&
+              currentExerciseIndex < execution.length - 1 && (
+                <button
+                  onClick={handleNextExercise}
+                  className="w-full bg-amber-500 hover:bg-amber-600 text-black px-6 py-3.5 rounded-lg transition-colors flex items-center justify-center gap-2 font-medium"
+                >
+                  Próximo Exercício
+                  <ChevronRight className="size-5" />
+                </button>
+              )}
           </>
         ) : (
           /* Workout Complete */
@@ -360,9 +375,10 @@ export function ExecuteWorkoutPage() {
             </p>
             <button
               onClick={handleFinishWorkout}
-              className="bg-amber-500 hover:bg-amber-600 text-black px-8 py-3.5 rounded-lg transition-colors font-medium"
+              disabled={saving}
+              className="bg-amber-500 hover:bg-amber-600 text-black px-8 py-3.5 rounded-lg transition-colors font-medium disabled:opacity-60"
             >
-              Finalizar Treino
+              {saving ? "Salvando..." : "Finalizar Treino"}
             </button>
           </div>
         )}

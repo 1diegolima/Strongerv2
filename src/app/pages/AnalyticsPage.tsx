@@ -1,104 +1,125 @@
-import { useEffect, useState } from "react";
-import { storage, WorkoutSession, WeightEntry, Exercise } from "../utils/storage";
+import { usePesos } from "../hooks/usePesos";
+import { useSessoes } from "../hooks/useSessoes";
+import { useTreinos } from "../hooks/useTreinos";
 import {
-  LineChart,
-  Line,
   AreaChart,
   Area,
   BarChart,
   Bar,
+  LineChart,
+  Line,
   XAxis,
   YAxis,
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
-  Legend,
 } from "recharts";
-import { TrendingUp, Weight, Activity, Calendar } from "lucide-react";
+import { TrendingUp, Weight, Activity, Calendar, Dumbbell } from "lucide-react";
 import { format } from "date-fns";
+import { useState } from "react";
+import { LoadingSpinner } from "../components/LoadingSpinner";
 
 export function AnalyticsPage() {
-  const [weightHistory, setWeightHistory] = useState<WeightEntry[]>([]);
-  const [sessions, setSessions] = useState<WorkoutSession[]>([]);
-  const [exercises, setExercises] = useState<Exercise[]>([]);
-  const [selectedExercise, setSelectedExercise] = useState<string>("");
+  const { pesos, loading: loadingPesos, pesoAtual, pesoAnterior } = usePesos();
+  const { sessoes, loading: loadingSessoes } = useSessoes();
+  const { treinos } = useTreinos();
+  const [selectedTreinoId, setSelectedTreinoId] = useState<string>("");
 
-  useEffect(() => {
-    storage.init();
-    setWeightHistory(storage.getWeightHistory());
-    setSessions(storage.getSessions());
-    const exs = storage.getExercises();
-    setExercises(exs);
-    if (exs.length > 0) {
-      setSelectedExercise(exs[0].id);
-    }
-  }, []);
+  const loading = loadingPesos || loadingSessoes;
 
   // Weight chart data
-  const weightData = weightHistory.map((entry) => ({
-    date: format(new Date(entry.date + "T00:00:00"), "dd/MM"),
-    peso: entry.weight,
+  const weightData = pesos.map((entry) => ({
+    date: format(new Date(entry.data_registro.split("T")[0] + "T00:00:00"), "dd/MM"),
+    peso: parseFloat(entry.peso_kg),
   }));
 
   // Weekly frequency data
   const getWeeklyFrequency = () => {
     const weeks: { [key: string]: number } = {};
-    sessions.forEach((session) => {
-      const date = new Date(session.date + "T00:00:00");
+    sessoes.forEach((session) => {
+      const dateStr = session.data_sessao.split("T")[0];
+      const date = new Date(dateStr + "T00:00:00");
       const weekKey = format(date, "dd/MM");
       weeks[weekKey] = (weeks[weekKey] || 0) + 1;
     });
-
     return Object.entries(weeks)
-      .map(([date, count]) => ({ data: date, treinos: count }))
+      .map(([data, treinos]) => ({ data, treinos }))
       .slice(-7);
   };
 
   const frequencyData = getWeeklyFrequency();
 
-  // Load progression for selected exercise
-  const getLoadProgression = (exerciseId: string) => {
-    const progressionData: { [key: string]: number[] } = {};
+  // Load progression for selected Treino
+  const getTreinoEvolution = (treinoId: string) => {
+    const treino = treinos.find(t => String(t.id) === treinoId);
+    if (!treino || !treino.exercicios) return [];
 
-    sessions.forEach((session) => {
-      const exerciseData = session.exercises.find(
-        (ex) => ex.exerciseId === exerciseId
-      );
-      if (exerciseData) {
-        const validSets = exerciseData.sets.filter((s) => s.isValid);
-        if (validSets.length > 0) {
-          const maxLoad = Math.max(...validSets.map((s) => s.load));
-          const date = format(new Date(session.date + "T00:00:00"), "dd/MM");
-          if (!progressionData[date]) {
-            progressionData[date] = [];
+    const now = new Date();
+    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+    return treino.exercicios.map((ex) => {
+      const history = sessoes.map(session => {
+        const exerciciosExec = session.exercicios_executados || [];
+        const exExec = exerciciosExec.find((e: any) => String(e.exerciseId || e.exercicio_id) === String(ex.exercicioId));
+        if (exExec) {
+          const validSets = (exExec.sets || []).filter((s: any) => s.isValid);
+          if (validSets.length > 0) {
+             const maxLoad = Math.max(...validSets.map((s: any) => s.load));
+             return { date: new Date(session.data_sessao), load: maxLoad };
           }
-          progressionData[date].push(maxLoad);
         }
-      }
-    });
+        return null;
+      }).filter(Boolean) as {date: Date, load: number}[];
 
-    return Object.entries(progressionData).map(([date, loads]) => ({
-      data: date,
-      carga: Math.max(...loads),
-    }));
+      if (history.length === 0) {
+        return { id: ex.id, nome: ex.exercicioNome, currentLoad: 0, oldLoad: 0, percentage: 0, hasData: false };
+      }
+
+      history.sort((a, b) => a.date.getTime() - b.date.getTime());
+
+      const currentLoad = history[history.length - 1].load;
+      const last30Days = history.filter(h => h.date >= thirtyDaysAgo);
+      
+      let oldLoad = currentLoad;
+      if (last30Days.length > 1) {
+         oldLoad = last30Days[0].load; 
+      } else if (history.length > 1) {
+         oldLoad = history[history.length - 2].load; 
+      }
+
+      const percentage = oldLoad > 0 ? ((currentLoad - oldLoad) / oldLoad) * 100 : 0;
+
+      return {
+        id: ex.id,
+        nome: ex.exercicioNome,
+        currentLoad,
+        oldLoad,
+        percentage,
+        hasData: true
+      };
+    });
   };
 
-  const loadData = selectedExercise ? getLoadProgression(selectedExercise) : [];
-
-  const selectedExerciseName =
-    exercises.find((e) => e.id === selectedExercise)?.name || "";
+  const evolutionData = selectedTreinoId ? getTreinoEvolution(selectedTreinoId) : [];
 
   // Stats
-  const currentWeight = weightHistory[weightHistory.length - 1]?.weight || 0;
-  const previousWeight = weightHistory[weightHistory.length - 2]?.weight || currentWeight;
-  const weightDiff = currentWeight - previousWeight;
-  const totalWorkouts = sessions.length;
-  const thisWeekWorkouts = sessions.filter((s) => {
-    const date = new Date(s.date);
+  const weightDiff = pesoAtual - pesoAnterior;
+  const totalWorkouts = sessoes.length;
+  const thisWeekWorkouts = sessoes.filter((s) => {
+    const dateStr = s.data_sessao.split("T")[0];
+    const date = new Date(dateStr);
     const now = new Date();
     const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
     return date >= weekAgo;
   }).length;
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-black flex items-center justify-center">
+        <LoadingSpinner size="lg" message="Carregando análises..." />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-black p-4 max-w-lg mx-auto">
@@ -114,15 +135,19 @@ export function AnalyticsPage() {
             <Weight className="size-4" />
             <span className="text-xs">Peso Atual</span>
           </div>
-          <div className="text-2xl font-bold text-white">{currentWeight}kg</div>
-          <div
-            className={`text-xs mt-1 ${
-              weightDiff < 0 ? "text-amber-500" : "text-orange-500"
-            }`}
-          >
-            {weightDiff > 0 ? "+" : ""}
-            {weightDiff.toFixed(1)}kg
+          <div className="text-2xl font-bold text-white">
+            {pesoAtual ? `${pesoAtual}kg` : "—"}
           </div>
+          {pesoAtual && pesoAnterior ? (
+            <div
+              className={`text-xs mt-1 ${
+                weightDiff < 0 ? "text-amber-500" : "text-orange-500"
+              }`}
+            >
+              {weightDiff > 0 ? "+" : ""}
+              {weightDiff.toFixed(1)}kg
+            </div>
+          ) : null}
         </div>
 
         <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4">
@@ -223,47 +248,51 @@ export function AnalyticsPage() {
       <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4">
         <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
           <TrendingUp className="size-5 text-amber-500" />
-          Progressão de Carga
+          Progressão de Carga (Mensal)
         </h3>
 
         <select
-          value={selectedExercise}
-          onChange={(e) => setSelectedExercise(e.target.value)}
+          value={selectedTreinoId}
+          onChange={(e) => setSelectedTreinoId(e.target.value)}
           className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-2.5 text-white mb-4 focus:outline-none focus:border-amber-500"
         >
-          {exercises.map((ex) => (
-            <option key={ex.id} value={ex.id}>
-              {ex.name}
+          <option value="">Selecione um treino</option>
+          {treinos.map((t) => (
+            <option key={t.id} value={String(t.id)}>
+              {t.nome}
             </option>
           ))}
         </select>
 
-        {loadData.length > 0 ? (
-          <ResponsiveContainer width="100%" height={200}>
-            <LineChart data={loadData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#27272a" />
-              <XAxis dataKey="data" stroke="#71717a" fontSize={12} />
-              <YAxis stroke="#71717a" fontSize={12} />
-              <Tooltip
-                contentStyle={{
-                  backgroundColor: "#18181b",
-                  border: "1px solid #27272a",
-                  borderRadius: "8px",
-                }}
-                labelStyle={{ color: "#a1a1aa" }}
-              />
-              <Line
-                type="monotone"
-                dataKey="carga"
-                stroke="#f59e0b"
-                strokeWidth={2}
-                dot={{ fill: "#f59e0b", r: 4 }}
-              />
-            </LineChart>
-          </ResponsiveContainer>
+        {evolutionData.length > 0 ? (
+          <div className="space-y-3">
+             {evolutionData.map((ev) => (
+                <div key={ev.id} className="bg-zinc-800/50 rounded-lg p-3 flex items-center justify-between">
+                   <div className="flex-1 flex max-w-[50%]">
+                      <p className="text-white font-medium text-sm truncate pr-2" title={ev.nome}>{ev.nome}</p>
+                   </div>
+                   {ev.hasData ? (
+                     <div className="flex items-center gap-3">
+                       <span className="text-base font-bold text-amber-500 min-w-[3rem] text-right">{ev.currentLoad}kg</span>
+                       <div className={`px-2 py-1 rounded text-xs font-semibold w-14 text-center
+                         ${ev.percentage > 0 ? 'bg-emerald-500/10 text-emerald-500' : 
+                           ev.percentage < 0 ? 'bg-red-500/10 text-red-500' : 'bg-zinc-700 text-zinc-400'}`}>
+                         {ev.percentage > 0 ? '+' : ''}{ev.percentage > 0 || ev.percentage < 0 ? ev.percentage.toFixed(0) : '0'}%
+                       </div>
+                     </div>
+                   ) : (
+                     <span className="text-xs text-zinc-500">Sem histórico</span>
+                   )}
+                </div>
+             ))}
+          </div>
         ) : (
           <div className="text-center py-8 text-zinc-400">
-            <p className="text-sm">Nenhum dado disponível para este exercício</p>
+            <p className="text-sm">
+              {selectedTreinoId
+                ? "Este treino não possui exercícios."
+                : "Selecione um treino para ver a evolução das cargas."}
+            </p>
           </div>
         )}
       </div>
