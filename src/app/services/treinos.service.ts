@@ -1,11 +1,6 @@
-import api from './api';
+import db, { type Treino, type TreinoExercicio, type Serie } from './db';
 
-export interface SerieAPI {
-  minReps: number;
-  maxReps: number;
-  targetLoad: number;
-  restTime: number;
-}
+export interface SerieAPI extends Serie {}
 
 export interface ExercicioTreinoAPI {
   id: number;
@@ -18,7 +13,6 @@ export interface ExercicioTreinoAPI {
 
 export interface TreinoAPI {
   id: number;
-  usuario_id: number;
   nome: string;
   dia_semana: number;
   observacoes: string | null;
@@ -40,27 +34,102 @@ export interface ExercicioAPI {
 }
 
 export const getTreinos = async (): Promise<TreinoAPI[]> => {
-  const response = await api.get<TreinoAPI[]>('/treinos');
-  return response.data;
+  const treinos = await db.treinos.toArray();
+  const result: TreinoAPI[] = [];
+
+  for (const t of treinos) {
+    const exerciciosRelacionados = await db.treino_exercicios
+      .where('treinoId').equals(t.id!)
+      .sortBy('ordem');
+
+    const exerciciosFormatados: ExercicioTreinoAPI[] = [];
+    
+    for (const exRel of exerciciosRelacionados) {
+      const exercicioInfo = await db.exercicios.get(exRel.exercicioId);
+      if (exercicioInfo) {
+        exerciciosFormatados.push({
+          id: exRel.id!,
+          exercicioId: exRel.exercicioId,
+          exercicioNome: exercicioInfo.nome,
+          grupoMuscular: exercicioInfo.grupo_muscular,
+          ordem: exRel.ordem,
+          seriesPlanejadas: exRel.seriesPlanejadas
+        });
+      }
+    }
+
+    result.push({
+      ...t,
+      id: t.id!,
+      exercicios: exerciciosFormatados.length > 0 ? exerciciosFormatados : null,
+      observacoes: t.observacoes || null
+    });
+  }
+
+  return result;
 };
 
 export const getTreinoById = async (id: number | string): Promise<TreinoAPI> => {
-  const response = await api.get<TreinoAPI>(`/treinos/${id}`);
-  return response.data;
+  const numericId = typeof id === 'string' ? parseInt(id) : id;
+  const t = await db.treinos.get(numericId);
+  
+  if (!t) throw new Error("Treino não encontrado");
+
+  const exerciciosRelacionados = await db.treino_exercicios
+    .where('treinoId').equals(t.id!)
+    .sortBy('ordem');
+
+  const exerciciosFormatados: ExercicioTreinoAPI[] = [];
+  
+  for (const exRel of exerciciosRelacionados) {
+    const exercicioInfo = await db.exercicios.get(exRel.exercicioId);
+    if (exercicioInfo) {
+      exerciciosFormatados.push({
+        id: exRel.id!,
+        exercicioId: exRel.exercicioId,
+        exercicioNome: exercicioInfo.nome,
+        grupoMuscular: exercicioInfo.grupo_muscular,
+        ordem: exRel.ordem,
+        seriesPlanejadas: exRel.seriesPlanejadas
+      });
+    }
+  }
+
+  return {
+    ...t,
+    id: t.id!,
+    exercicios: exerciciosFormatados.length > 0 ? exerciciosFormatados : null,
+    observacoes: t.observacoes || null
+  };
 };
 
 export const createTreino = async (data: TreinoInput): Promise<TreinoAPI> => {
-  const response = await api.post<TreinoAPI>('/treinos', data);
-  return response.data;
+  const novoTreino: Treino = {
+    nome: data.nome,
+    dia_semana: data.dia_semana || 0,
+    observacoes: data.observacoes || null,
+    criado_em: new Date().toISOString(),
+    atualizado_em: new Date().toISOString()
+  };
+
+  const newId = await db.treinos.add(novoTreino);
+  return await getTreinoById(newId as number);
 };
 
 export const updateTreino = async (id: number, data: TreinoInput): Promise<TreinoAPI> => {
-  const response = await api.put<TreinoAPI>(`/treinos/${id}`, data);
-  return response.data;
+  await db.treinos.update(id, {
+    ...data,
+    atualizado_em: new Date().toISOString()
+  });
+  return await getTreinoById(id);
 };
 
 export const deleteTreino = async (id: number): Promise<void> => {
-  await api.delete(`/treinos/${id}`);
+  await db.transaction('rw', db.treinos, db.treino_exercicios, async () => {
+    // Cascade delete manually since Dexie standard tables don't do foreign key cascades natively
+    await db.treino_exercicios.where({ treinoId: id }).delete();
+    await db.treinos.delete(id);
+  });
 };
 
 export const addExercicioAoTreino = async (
@@ -68,18 +137,30 @@ export const addExercicioAoTreino = async (
   exercicioId: number,
   seriesPlanejadas: SerieAPI[]
 ): Promise<any> => {
-  const response = await api.post(`/treinos/${treinoId}/exercicios`, {
+  const numericTreinoId = typeof treinoId === 'string' ? parseInt(treinoId) : treinoId;
+  
+  // Find highest order to push at the end
+  const currentExercises = await db.treino_exercicios.where({ treinoId: numericTreinoId }).toArray();
+  const maxOrdem = currentExercises.length > 0 
+    ? Math.max(...currentExercises.map(e => e.ordem))
+    : 0;
+
+  const novoExercicio: TreinoExercicio = {
+    treinoId: numericTreinoId,
     exercicioId,
-    seriesPlanejadas,
-  });
-  return response.data;
+    ordem: maxOrdem + 1,
+    seriesPlanejadas
+  };
+
+  await db.treino_exercicios.add(novoExercicio);
+  return await getTreinoById(numericTreinoId);
 };
 
 export const removeExercicioDoTreino = async (
   treinoId: number | string,
   treinoExercicioId: number
 ): Promise<void> => {
-  await api.delete(`/treinos/${treinoId}/exercicios/${treinoExercicioId}`);
+  await db.treino_exercicios.delete(treinoExercicioId);
 };
 
 export const updateExercicioDoTreino = async (
@@ -88,21 +169,28 @@ export const updateExercicioDoTreino = async (
   seriesPlanejadas: SerieAPI[],
   exercicioId: number,
 ): Promise<any> => {
-  const response = await api.put(`/treinos/${treinoId}/exercicios/${treinoExercicioId}`, {
+  await db.treino_exercicios.update(treinoExercicioId, {
     seriesPlanejadas,
-    exercicioId,
+    exercicioId
   });
-  return response.data;
+  return await getTreinoById(treinoId);
 };
 
 export const reorderExerciciosAPI = async (
   treinoId: number | string,
   items: { id: number; ordem: number }[]
 ): Promise<void> => {
-  await api.put(`/treinos/${treinoId}/exercicios/reorder`, { items });
+  await db.transaction('rw', db.treino_exercicios, async () => {
+    for (const item of items) {
+      await db.treino_exercicios.update(item.id, { ordem: item.ordem });
+    }
+  });
 };
 
 export const getExercicios = async (): Promise<ExercicioAPI[]> => {
-  const response = await api.get<ExercicioAPI[]>('/treinos/exercicios');
-  return response.data;
+  return (await db.exercicios.toArray()).map(ex => ({
+    id: ex.id!,
+    nome: ex.nome,
+    grupo_muscular: ex.grupo_muscular
+  }));
 };
