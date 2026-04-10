@@ -1,8 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router";
-import { usePerfil } from "../hooks/usePerfil";
 import { usePesos } from "../hooks/usePesos";
-import { api } from "../services/api"; // or we can use treinos service
+import { savePerfil } from "../services/perfil.service";
 import { ChevronRight, ChevronLeft, ArrowRight, Loader2, Dumbbell } from "lucide-react";
 import { toast } from "sonner";
 import { createTreino } from "../services/treinos.service";
@@ -31,7 +30,6 @@ export function OnboardingPage() {
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
 
-  const { perfil, updatePerfil } = usePerfil();
   const { addPeso } = usePesos();
 
   const [formData, setFormData] = useState({
@@ -59,20 +57,18 @@ export function OnboardingPage() {
 
   const handleFinish = async () => {
     if (!formData.treinoNome.trim()) return toast.error("Dê um nome para o seu primeiro treino");
-    
+
     setLoading(true);
     try {
-      // 1. Atualizar Perfil
-      if (perfil) {
-        await updatePerfil(perfil.id, {
-          nome: formData.nome,
-          data_nascimento: formData.dataNascimento || undefined,
-          altura_cm: parseInt(formData.alturaCm),
-          sexo: formData.sexo,
-          objetivo: formData.objetivo,
-          peso_atual: parseFloat(formData.pesoAtual),
-        });
-      }
+      // 1. Salvar/Atualizar Perfil (upsert — funciona mesmo se o perfil não existir)
+      await savePerfil({
+        nome: formData.nome,
+        data_nascimento: formData.dataNascimento || undefined,
+        altura_cm: parseInt(formData.alturaCm),
+        sexo: formData.sexo,
+        objetivo: formData.objetivo,
+        peso_atual: parseFloat(formData.pesoAtual),
+      });
 
       // 2. Registrar Peso Inicial no histórico
       await addPeso({
@@ -87,10 +83,10 @@ export function OnboardingPage() {
       });
 
       toast.success("Tudo pronto! Bem-vindo ao Stronger 💪");
-      
+
       // Redirecionar direto para adicionar exercícios no novo treino
       setTimeout(() => {
-        window.location.href = `/workout/${novoTreino.id}`; // forces hard navigation to avoid cached states issue, or navigate("/")
+        window.location.href = `/workout/${novoTreino.id}`;
       }, 500);
 
     } catch (err: any) {
@@ -123,7 +119,7 @@ export function OnboardingPage() {
           {step === 1 && (
             <div className="space-y-4 animate-in fade-in slide-in-from-right-4 duration-300">
               <h2 className="text-lg font-semibold text-white mb-2">Dados Básicos</h2>
-              
+
               <div>
                 <label className="block text-sm text-zinc-400 mb-1">Como devemos te chamar?</label>
                 <input
@@ -164,7 +160,7 @@ export function OnboardingPage() {
           {step === 2 && (
             <div className="space-y-4 animate-in fade-in slide-in-from-right-4 duration-300">
               <h2 className="text-lg font-semibold text-white mb-2">Composição Física</h2>
-              
+
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-sm text-zinc-400 mb-1">Altura (cm)</label>
@@ -210,7 +206,7 @@ export function OnboardingPage() {
             <div className="space-y-4 animate-in fade-in slide-in-from-right-4 duration-300">
               <h2 className="text-lg font-semibold text-white mb-2">O Primeiro Treino</h2>
               <p className="text-zinc-400 text-sm mb-4">Para concluir, vamos criar a prancheta do seu primeiro dia de treino. Depois você poderá mapear os exercícios individualmente.</p>
-              
+
               <div>
                 <label className="block text-sm text-zinc-400 mb-1">Nome da Ficha</label>
                 <input
@@ -249,7 +245,7 @@ export function OnboardingPage() {
               <ChevronLeft className="size-5" />
             </button>
           )}
-          
+
           {step < 3 ? (
             <button
               onClick={nextStep}

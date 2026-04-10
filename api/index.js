@@ -1,5 +1,5 @@
-// Vercel Serverless Function entry point
-// All /api/* requests are routed here by vercel.json
+// Vercel Serverless Function — API entry point
+// Routes all /api/* requests to the Express application
 const app = require('../server/app');
 
 module.exports = app;
